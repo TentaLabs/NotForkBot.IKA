@@ -1,16 +1,16 @@
 # NotForkBot.IKA
 ![License](https://img.shields.io/badge/License-AGPLv3-blue.svg)
 
+# Example Implementations
+
+The driving force to develop this project is automated bots for Nintendo Switch Pokémon games. An example implementation is provided in this repo to demonstrate interesting tasks this framework is capable of performing. Refer to the [Wiki](https://github.com/kwsch/SysBot.NET/wiki) for more details on the supported Pokémon features.
+
 ## SysBot.Base:
 - Base logic library to be built upon in game-specific projects.
 - Contains a synchronous and asynchronous Bot connection class to interact with sys-botbase.
 
 ## SysBot.Tests:
 - Unit Tests for ensuring logic behaves as intended :)
-
-# Example Implementations
-
-The driving force to develop this project is automated bots for Nintendo Switch Pokémon games. An example implementation is provided in this repo to demonstrate interesting tasks this framework is capable of performing. Refer to the [Wiki](https://github.com/kwsch/SysBot.NET/wiki) for more details on the supported Pokémon features.
 
 ## SysBot.Pokemon:
 - Class library using SysBot.Base to contain logic related to creating & running Sword/Shield bots.
