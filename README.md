@@ -1,4 +1,4 @@
-# SysBot.NET
+# NotForkBot.IKA
 ![License](https://img.shields.io/badge/License-AGPLv3-blue.svg)
 
 ## SysBot.Base:
