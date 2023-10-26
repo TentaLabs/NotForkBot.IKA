@@ -1,6 +1,9 @@
 # NotForkBot.IKA
 ![License](https://img.shields.io/badge/License-AGPLv3-blue.svg)
 
+![tentalabs-white](https://github.com/TentaLabs/NotForkBot.IKA/assets/148016696/2701adba-646b-4181-8244-ae05ecb4dcdf)
+
+
 # Example Implementations
 
 The driving force to develop this project is automated bots for Nintendo Switch Pokémon games. An example implementation is provided in this repo to demonstrate interesting tasks this framework is capable of performing. Refer to the [Wiki](https://github.com/kwsch/SysBot.NET/wiki) for more details on the supported Pokémon features.
