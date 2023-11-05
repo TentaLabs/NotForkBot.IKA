@@ -15,6 +15,7 @@ using RaidCrawler.Core.Structures;
 using System.Net.Http;
 using Newtonsoft.Json;
 using static SysBot.Base.SwitchButton;
+using static SysBot.Pokemon.OverworldSettingsSV;
 
 namespace SysBot.Pokemon
 {
@@ -74,7 +75,7 @@ namespace SysBot.Pokemon
                 Log("Using Preset file.");
             }
 
-            if (Settings.ConfigureRolloverCorrection)
+            if (Settings.RolloverFilters.ConfigureRolloverCorrection)
             {
                 await RolloverCorrectionSV(token).ConfigureAwait(false);
                 return;
@@ -166,7 +167,7 @@ namespace SysBot.Pokemon
                 PartyPK = new[] { data },
             };
             Settings.RaidEmbedFilters = param;
-            Log($"Parameters generated from text file for 0x{Settings.RaidEmbedFilters.Seed}.");
+            Log($"Parameters generated for 0x{Settings.RaidEmbedFilters.Seed}.");
         }
 
         private async Task InnerLoop(CancellationToken token)
@@ -223,7 +224,7 @@ namespace SysBot.Pokemon
                     continue;
                 }
 
-                if (RaidCount == 0 && Settings.KeepDaySeed)
+                if (RaidCount == 0 && Settings.RolloverFilters.KeepDaySeed)
                     OverrideTodaySeed();
 
                 if (Hub.Config.Stream.CreateAssets)
@@ -352,6 +353,7 @@ namespace SysBot.Pokemon
                     await EnqueueEmbed(names, "", hatTrick, false, false, true, token).ConfigureAwait(false);
                 }
 
+                bool stuck = false;
                 while (await IsConnectedToLobby(token).ConfigureAwait(false))
                 {
                     b++;
@@ -360,34 +362,46 @@ namespace SysBot.Pokemon
                         case RaidAction.AFK: await Task.Delay(3_000, token).ConfigureAwait(false); break;
                         case RaidAction.MashA: await Click(A, 3_500, token).ConfigureAwait(false); break;
                     }
+
                     if (b % 10 == 0)
                         Log("Still in battle...");
+
+                    if (b == 300 && Settings.RaidEmbedFilters.CrystalType is TeraCrystalType.Might || b == 200 && Settings.RaidEmbedFilters.CrystalType != TeraCrystalType.Might)
+                    {
+                        string time = b == 200 ? "10 minutes " : "15 minutes ";
+                        Log($"We've been stuck in battle for {time}.. Raid frozen? Resetting game!");
+                        stuck = true;
+                        break;
+                    }
                 }
 
-                Log("Raid lobby disbanded!");
-                await Click(B, 0_500, token).ConfigureAwait(false);
-                await Click(B, 0_500, token).ConfigureAwait(false);
-                await Click(DDOWN, 0_500, token).ConfigureAwait(false);
-
-                Log("Returning to overworld...");
-                while (!await IsOnOverworld(OverworldOffset, token).ConfigureAwait(false))
-                    await Click(A, 1_000, token).ConfigureAwait(false);
-
-                bool status = await DenStatus(StoredIndex, token).ConfigureAwait(false);
-                if (!status)
+                if (!stuck)
                 {
-                    Settings.AddCompletedRaids();
-                    Log($"We defeated {Settings.RaidEmbedFilters.Species}!");
-                    WinCount++;
-                    if (trainers.Count > 0 && Settings.CatchLimit != 0)
-                        ApplyPenalty(trainers);
+                    Log("Raid lobby disbanded!");
+                    await Click(B, 0_500, token).ConfigureAwait(false);
+                    await Click(B, 0_500, token).ConfigureAwait(false);
+                    await Click(DDOWN, 0_500, token).ConfigureAwait(false);
 
-                    await EnqueueEmbed(null, "", false, false, true, false, token).ConfigureAwait(false);
-                }
-                else
-                {
-                    Log("We lost the raid...");
-                    LossCount++;
+                    Log("Returning to overworld...");
+                    while (!await IsOnOverworld(OverworldOffset, token).ConfigureAwait(false))
+                        await Click(A, 1_000, token).ConfigureAwait(false);
+
+                    bool status = await DenStatus(StoredIndex, token).ConfigureAwait(false);
+                    if (!status)
+                    {
+                        Settings.AddCompletedRaids();
+                        Log($"We defeated {Settings.RaidEmbedFilters.Species}!");
+                        WinCount++;
+                        if (trainers.Count > 0 && Settings.CatchLimit != 0)
+                            ApplyPenalty(trainers);
+
+                        await EnqueueEmbed(null, "", false, false, true, false, token).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        Log("We lost the raid...");
+                        LossCount++;
+                    }
                 }
             }
 
@@ -702,7 +716,14 @@ namespace SysBot.Pokemon
 
         private async Task RolloverCorrectionSV(CancellationToken token)
         {
-            var scrollroll = Settings.DateTimeFormat switch
+            if (Settings.RolloverFilters.RolloverPrevention == RolloverPrevention.TimeSkip)
+            {
+                for (int i = 0; i < 23; i++)
+                    await TimeSkipBwd(token).ConfigureAwait(false);
+                return;
+            }
+
+            var scrollroll = Settings.RolloverFilters.DateTimeFormat switch
             {
                 DTFormat.DDMMYY => 0,
                 DTFormat.YYMMDD => 2,
@@ -721,12 +742,12 @@ namespace SysBot.Pokemon
             await PressAndHold(DDOWN, 2_000, 0_250, token).ConfigureAwait(false); // Scroll to system settings
             await Click(A, 1_250, token).ConfigureAwait(false);
 
-            if (Settings.UseOvershoot)
+            if (Settings.RolloverFilters.RolloverPrevention == RolloverPrevention.Overshoot)
             {
-                await PressAndHold(DDOWN, Settings.HoldTimeForRollover, 1_000, token).ConfigureAwait(false);
+                await PressAndHold(DDOWN, Settings.RolloverFilters.HoldTimeForRollover, 1_000, token).ConfigureAwait(false);
                 await Click(DUP, 0_500, token).ConfigureAwait(false);
             }
-            else if (!Settings.UseOvershoot)
+            else if (Settings.RolloverFilters.RolloverPrevention == RolloverPrevention.DDOWN)
             {
                 for (int i = 0; i < 39; i++)
                     await Click(DDOWN, 0_100, token).ConfigureAwait(false);
@@ -800,18 +821,13 @@ namespace SysBot.Pokemon
             if (Settings.TakeScreenshot && !upnext)
                 bytes = await SwitchConnection.PixelPeek(token).ConfigureAwait(false) ?? Array.Empty<byte>();
 
-            var teraurl = $"https://raw.githubusercontent.com/kwsch/PKHeX/master/PKHeX.Drawing.Misc/Resources/img/types/gem/gem_" + ((int)Settings.RaidEmbedFilters.TeraType < 10 ? $"0{(int)Settings.RaidEmbedFilters.TeraType}" : $"{(int)Settings.RaidEmbedFilters.TeraType}") + ".png";
-
             var embed = new EmbedBuilder()
             {
+                Title = disband ? $"**Raid canceled: [{TeraRaidCode}]**" : upnext && Settings.TotalRaidsToHost != 0 ? $"Preparing Raid {RaidCount}/{Settings.TotalRaidsToHost}" : upnext && Settings.TotalRaidsToHost == 0 ? $"Preparing Raid" : title,
                 Color = disband ? Color.Red : hatTrick ? Color.Purple : Color.Green,
                 Description = disband ? message : upnext ? Settings.RaidEmbedFilters.Title : raidstart ? "" : description,
                 ImageUrl = bytes.Length > 0 ? "attachment://zap.jpg" : default,
-            }.WithAuthor(new EmbedAuthorBuilder()
-            {
-                IconUrl = teraurl,
-                Name = disband ? $"**Raid canceled: [{TeraRaidCode}]**" : upnext && Settings.TotalRaidsToHost != 0 ? $"Preparing Raid {RaidCount}/{Settings.TotalRaidsToHost}" : upnext && Settings.TotalRaidsToHost == 0 ? $"Preparing Raid" : title,
-            }).WithFooter(new EmbedFooterBuilder()
+            }.WithFooter(new EmbedFooterBuilder()
             {
                 Text = $"Host: {HostSAV.OT} | Uptime: {StartTime - DateTime.Now:d\\.hh\\:mm\\:ss}\n" +
                        $"Raids: {RaidCount} | Wins: {WinCount} | Losses: {LossCount}"
@@ -849,6 +865,9 @@ namespace SysBot.Pokemon
             };
             if (pk.Form != 0)
                 form = $"-{pk.Form}";
+            if (pk.Species is (ushort)Species.Basculegion or (ushort)Species.Indeedee or (ushort)Species.Oinkologne && pk.Form == 1)
+                pk.Gender = 1;
+
             if (Settings.RaidEmbedFilters.IsShiny == true)
                 CommonEdits.SetIsShiny(pk, true);
             else
@@ -1049,7 +1068,6 @@ namespace SysBot.Pokemon
                     Settings.RaidEmbedFilters.CrystalType = container.Raids[i].IsBlack ? TeraCrystalType.Black : container.Raids[i].IsEvent && stars == 7 ? TeraCrystalType.Might : container.Raids[i].IsEvent ? TeraCrystalType.Distribution : TeraCrystalType.Base;
                     Settings.RaidEmbedFilters.Species = (Species)container.Encounters[i].Species;
                     Settings.RaidEmbedFilters.SpeciesForm = container.Encounters[i].Form;
-                    Settings.RaidEmbedFilters.TeraType = (MoveType)container.Raids[i].TeraType;
                     var catchlimit = Settings.CatchLimit;
                     string cl = catchlimit is 0 ? "\n**No catch limit!**" : $"\n**Catch Limit: {catchlimit}**";
                     var pkinfo = Hub.Config.StopConditions.GetRaidPrintName(pk);
@@ -1120,6 +1138,7 @@ namespace SysBot.Pokemon
                     }
 
                     Settings.RaidEmbedFilters.IsSet = true;
+                    StoredIndex = i;
                     return true;
                 }
             }
