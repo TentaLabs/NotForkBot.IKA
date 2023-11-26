@@ -48,7 +48,7 @@ namespace SysBot.Pokemon
         private ulong RaidBlockPointerP;
         private ulong RaidBlockPointerK;
         private readonly ulong[] TeraNIDOffsets = new ulong[3];
-        public string TeraRaidCode { get; set; } = string.Empty;
+        private string TeraRaidCode { get; set; } = string.Empty;
         private string BaseDescription = string.Empty;
         private string[] PresetDescription = Array.Empty<string>();
         private string[] ModDescription = Array.Empty<string>();
@@ -336,15 +336,22 @@ namespace SysBot.Pokemon
                     continue;
 
                 // Read trainers until someone joins.
-                (partyReady, lobbyTrainers) = await ReadTrainers(token).ConfigureAwait(false);
-                if (!partyReady)
+                try
                 {
-                    if (LostRaid >= Settings.LobbyOptions.SkipRaidLimit && Settings.LobbyOptions.LobbyMethodOptions == LobbyMethodOptions.SkipRaid)
+                    // Read trainers until someone joins.
+                    (partyReady, lobbyTrainers) = await ReadTrainers(token).ConfigureAwait(false);
+                    if (!partyReady)
                     {
-                        await SkipRaidOnLosses(token).ConfigureAwait(false);
-                        continue;
+                        if (LostRaid >= Settings.LobbyOptions.SkipRaidLimit && Settings.LobbyOptions.LobbyMethodOptions == LobbyMethodOptions.SkipRaid)
+                        {
+                            await SkipRaidOnLosses(token).ConfigureAwait(false);
+                            continue;
+                        }
                     }
-
+                }
+                catch (Exception ex)
+                {
+                    Log($"An error occurred while processing the lobby: {ex.Message}");
                     // Should add overworld recovery with a game restart fallback.
                     await RegroupFromBannedUser(token).ConfigureAwait(false);
 
@@ -365,11 +372,13 @@ namespace SysBot.Pokemon
                     }
                     continue;
                 }
+
                 await CompleteRaid(lobbyTrainers, token).ConfigureAwait(false);
                 raidsHosted++;
                 if (raidsHosted == Settings.TotalRaidsToHost && Settings.TotalRaidsToHost > 0)
                     break;
             }
+
             if (Settings.TotalRaidsToHost > 0 && raidsHosted != 0)
                 Log("Total raids to host has been met.");
         }
@@ -713,7 +722,6 @@ namespace SysBot.Pokemon
         private async Task<bool> PrepareForRaid(CancellationToken token)
         {
             var len = string.Empty;
-            File.WriteAllText("raidcode.txt", string.Empty);
             foreach (var l in Settings.RaidEmbedParameters[RotationCount].PartyPK)
                 len += l;
             if (len.Length > 1 && EmptyRaid == 0)
@@ -800,12 +808,11 @@ namespace SysBot.Pokemon
             return true;
         }
 
-        public async Task<string> GetRaidCode(CancellationToken token)
+        private async Task<string> GetRaidCode(CancellationToken token)
         {
             var data = await SwitchConnection.PointerPeek(6, Offsets.TeraRaidCodePointer, token).ConfigureAwait(false);
             TeraRaidCode = Encoding.ASCII.GetString(data);
             Log($"Raid Code: {TeraRaidCode}");
-            File.WriteAllText("raidcode.txt", TeraRaidCode);
             return $"\n{TeraRaidCode}\n";
         }
 
@@ -1086,7 +1093,7 @@ namespace SysBot.Pokemon
             if (Settings.TakeScreenshot && !upnext)
                 bytes = await SwitchConnection.PixelPeek(token).ConfigureAwait(false) ?? Array.Empty<byte>();
 
-            string disclaimer = Settings.RaidEmbedParameters.Count > 1 ? "NotForkBot.IKA, Powered by TentaLabs.\n" : "";
+            string disclaimer = Settings.RaidEmbedParameters.Count > 1 ? "TentaLabs SysBot v2.1.\n" : "";
             var teraurl = string.Empty;
             if (!upnext)
                 teraurl = $"https://raw.githubusercontent.com/kwsch/PKHeX/master/PKHeX.Drawing.Misc/Resources/img/types/gem/gem_" + ((int)Settings.RaidEmbedParameters[RotationCount].TeraType < 10 ? $"0{(int)Settings.RaidEmbedParameters[RotationCount].TeraType}" : $"{(int)Settings.RaidEmbedParameters[RotationCount].TeraType}") + ".png";
@@ -1104,7 +1111,7 @@ namespace SysBot.Pokemon
             .WithFooter(new EmbedFooterBuilder()
             {
                 Text = $"Host: {HostSAV.OT} | Uptime: {StartTime - DateTime.Now:d\\.hh\\:mm\\:ss}\n" +
-                       $"Raid Hosted: {RaidCount}\n" + disclaimer
+                       $"Raids: {RaidCount} | Wins: {WinCount} | Losses: {LossCount}\n" + disclaimer
             });
 
             if (!disband && names is null && !upnext)
@@ -1150,7 +1157,12 @@ namespace SysBot.Pokemon
                 CommonEdits.SetIsShiny(pk, false);
 
             if (Settings.RaidEmbedParameters[RotationCount].SpriteAlternateArt && Settings.RaidEmbedParameters[RotationCount].IsShiny)
+            {
                 turl = AltPokeImg(pk);
+                bool valid = await VerifySprite(turl).ConfigureAwait(false);
+                if (!valid)
+                    turl = TradeExtensions<PK9>.PokeImg(pk, false, false);
+            }
             else
                 turl = TradeExtensions<PK9>.PokeImg(pk, false, false);
 
@@ -1416,7 +1428,6 @@ namespace SysBot.Pokemon
             container.SetEncounters(allEncounters);
             container.SetRewards(allRewards);
 
-
             if (init)
             {
                 for (int rc = 0; rc < Settings.RaidEmbedParameters.Count; rc++)
@@ -1436,7 +1447,6 @@ namespace SysBot.Pokemon
                     }
                 }
             }
-
 
             bool done = false;
             for (int i = 0; i < container.Raids.Count; i++)
@@ -1510,11 +1520,7 @@ namespace SysBot.Pokemon
 
                             for (int j = 0; j < raidDescription.Length; j++)
                             {
-                                raidDescription[j] = raidDescription[j]
-                                .Replace("{tera}", tera)
-                                .Replace("{difficulty}", $"{stars}")
-                                .Replace("{stars}", starcount)
-                                .Trim();
+                                raidDescription[j] = raidDescription[j].Replace("{tera}", tera).Replace("{difficulty}", $"{stars}").Replace("{stars}", starcount).Trim();
                                 raidDescription[j] = Regex.Replace(raidDescription[j], @"\s+", " ");
                             }
 
