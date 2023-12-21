@@ -909,13 +909,13 @@ namespace SysBot.Pokemon
                 bool isLegend = IsLegendaryOrMythical(pk.Species);
 
                 var names = CatchValues.Replace(" ", "").Split(',');
-                var obj = new object[] { m_user.UserInfo.UserID, newID, match.Shiny, match.Ball, match.Nickname, match.Species, match.Form, match.Egg, false, false, isLegend, match.Event, match.Gmax };
+                var obj = new object[] { m_user.UserInfo.UserID, newID, match.Shiny, match.Ball, match.Nickname, match.Species, match.Form, match.Egg, false, false, isLegend, match.Event, match.Gmax, match.Paradox };
                 result.SQLCommands.Add(DBCommandConstructor("catches", CatchValues, "", names, obj, SQLTableContext.Insert));
 
                 names = BinaryCatchesValues.Replace(" ", "").Split(',');
                 obj = new object[] { m_user.UserInfo.UserID, newID, pk.DecryptedPartyData };
                 result.SQLCommands.Add(DBCommandConstructor("binary_catches", BinaryCatchesValues, "", names, obj, SQLTableContext.Insert));
-                m_user.Catches.Add(newID, new() { Ball = match.Ball, Egg = match.Egg, Form = match.Form, ID = newID, Shiny = match.Shiny, Species = match.Species, Nickname = match.Nickname, Favorite = false, Traded = false, Legendary = isLegend, Event = match.Event, Gmax = match.Gmax });
+                m_user.Catches.Add(newID, new() { Ball = match.Ball, Egg = match.Egg, Form = match.Form, ID = newID, Shiny = match.Shiny, Species = match.Species, Nickname = match.Nickname, Favorite = false, Traded = false, Legendary = isLegend, Event = match.Event, Gmax = match.Gmax, Paradox = match.Paradox });
 
                 names = new string[] { "@user_id", "@id" };
                 obj = new object[] { user.UserInfo.UserID, match.ID };

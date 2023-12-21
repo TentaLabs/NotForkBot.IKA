@@ -287,8 +287,8 @@ namespace SysBot.Pokemon
                     Traded = (int)reader["was_traded"] != 0,
                     Legendary = (int)reader["is_legendary"] != 0,
                     Event = (int)reader["is_event"] != 0,
-                    Gmax = (int)reader["is_gmax"] != 0
-                    Paradox = (int)reader["is_paradox"] != 0,
+                    Gmax = (int)reader["is_gmax"] != 0,
+                    Paradox = (int)reader["is_paradox"] != 0
                 };
 
                 try
