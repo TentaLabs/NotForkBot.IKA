@@ -9,6 +9,7 @@ using System.Collections.Generic;
 using System.Data.SQLite;
 using SysBot.Base;
 using System.Text.RegularExpressions;
+using System.Text;
 
 
 namespace SysBot.Pokemon;
@@ -314,7 +315,7 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
                     {
                         _ = Enum.TryParse(user.TrainerInfo.OTGender, out Gender gender);
                         _ = Enum.TryParse(user.TrainerInfo.Language, out LanguageID language);
-                        info = new SimpleTrainerInfo { Gender = (int)gender, Language = (int)language, OT = user.TrainerInfo.OTName, TID16 = user.TrainerInfo.TID16, SID16 = user.TrainerInfo.SID16, Context = Game is GameVersion.BDSP ? EntityContext.Gen8b : Game is GameVersion.SV ? EntityContext.Gen9 : EntityContext.Gen8, Generation = format };
+                        info = new SimpleTrainerInfo { Gender = (byte)(int)gender, Language = (int)language, OT = user.TrainerInfo.OTName, TID16 = user.TrainerInfo.TID16, SID16 = user.TrainerInfo.SID16, Context = Game is GameVersion.BDSP ? EntityContext.Gen8b : Game is GameVersion.SV ? EntityContext.Gen9 : EntityContext.Gen8, Generation = (byte)format };
                         result.Poke = TradeExtensions<T>.CherishHandler(mgRng!, info);
                     }
                 }
@@ -322,11 +323,23 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
                 if (result.Poke.Species is 0)
                     result.Poke = Game is GameVersion.BDSP ? SetProcessBDSP(speciesName, trainerInfo, eventForm) : Game is GameVersion.SV ? SetProcessSV(speciesName, trainerInfo, eventForm) : SetProcessSWSH(speciesName, trainerInfo, eventForm);
 
-                if (result.Poke.Species is ((ushort)Species.Hoopa) or ((ushort)Species.Meloetta) or ((ushort)Species.Koraidon) or ((ushort)Species.Miraidon))
+                if (result.Poke.Species is ((ushort)Species.Hoopa) or ((ushort)Species.Meloetta))
                     result.Poke.Form = 0;
+
+                if ((result.Poke is PK9 pk9) && pk9.Species is (ushort)Species.Koraidon or (ushort)Species.Miraidon)
+                {
+                    pk9.Form = 0; // Battle Form
+                    pk9.FormArgument = 1; // the one in Area Zero; not the one you ride on the whole game
+                }
 
                 if (result.Poke.Species is >= (ushort)Species.Sprigatito and <= (ushort)Species.Quaquaval && result.Poke.Ball == (int)Ball.Premier)
                     result.Poke.Ball = (int)Ball.Poke;
+
+                if (Settings.PokeEventType is PokeEventType.Anonymyths)
+                {
+                    if (TradeExtensions<PK9>.Anonymyths.Contains(result.Poke.Species))
+                        result.Poke.Nickname = TradeExtensions<PK9>.ReturnAnonymythsNickname(result.Poke);
+                }
 
                 if (!new LegalityAnalysis(result.Poke).Valid)
                     result.Poke = LegalityFixFailure(result.Poke);
@@ -501,7 +514,8 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
             string nickname = input;
             input = ListNameSanitize(input);
             bool speciesAndForm = input.Contains('-');
-            var speciesID = TradeExtensions<T>.EnumParse<Species>(speciesAndForm ? input.Split('-')[0] : input); //var speciesID = ParseSpeciesFromSanitizedLabel(input);
+            //var speciesID = TradeExtensions<T>.EnumParse<Species>(speciesAndForm ? input.Split('-')[0] : input); //var speciesID = ParseSpeciesFromSanitizedLabel(input);
+            var speciesID = ParseSpeciesFromSanitizedLabel(input);
             bool isSpecies = (ushort)speciesID > 0;
             bool isBall = Enum.TryParse(input, true, out Ball enumBall);
             bool isShiny = filters.FirstOrDefault(x => x == "Shiny") != default;
@@ -680,7 +694,7 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
             bool isParadox = IsParadox((ushort)speciesID);
             string ballStr = ball != Ball.None ? $"Pokémon in {ball} Ball" : "";
             string generalOutput = input == "Shinies" ? "shiny Pokémon" : input == "Events" ? "non-shiny event Pokémon" : input == "Legendaries" ? "non-shiny legendary Pokémon" : input == "Paradoxes" ? "non-shiny paradox Pokémon" : ball != Ball.None ? ballStr : $"non-shiny {input}";
-            string exclude = ball is Ball.Cherish || input == "Events" ? ", legendaries, paradoxes" : input == "Legendaries" ? ", events, paradoxes," : input == "Paradoxes" ? ", events, legendaries," : $", events,{(isLegend ? "" : " legendaries,")}{(isParadox ? "" : " paradoxes,")}"; 
+            string exclude = ball is Ball.Cherish || input == "Events" ? ", legendaries, paradoxes" : input == "Legendaries" ? ", events, paradoxes," : input == "Paradoxes" ? ", events, legendaries," : $", events,{(isLegend ? "" : " legendaries,")}{(isParadox ? "" : " paradoxes,")}";
             result.Message = input == "" ? "Every non-shiny Pokémon was released, excluding Ditto, favorites, events, buddy, legendaries, and those in daycare." : $"Every {generalOutput} was released, excluding favorites, buddy{exclude} and those in daycare.";
             return true;
         }
@@ -911,7 +925,7 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
             bool isLegend = IsLegendaryOrMythical(pk.Species);
 
             var names = CatchValues.Replace(" ", "").Split(',');
-            var obj = new object[] { m_user.UserInfo.UserID, newID, match.Shiny, match.Ball, match.Nickname, match.Species, match.Form, match.Egg, false, false, isLegend, match.Event, match.Gmax }; 
+            var obj = new object[] { m_user.UserInfo.UserID, newID, match.Shiny, match.Ball, match.Nickname, match.Species, match.Form, match.Egg, false, false, isLegend, match.Event, match.Gmax };
             result.SQLCommands.Add(DBCommandConstructor("catches", CatchValues, "", names, obj, SQLTableContext.Insert));
 
             names = BinaryCatchesValues.Replace(" ", "").Split(',');
@@ -1448,11 +1462,18 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
                 return false;
             }
 
-            var oldName = pk.IsNicknamed ? pk.Nickname : $"{SpeciesName.GetSpeciesNameGeneration(pk.Species, 2, 8)}{TradeExtensions<T>.FormOutput(pk.Species, pk.Form, out _)}";
+            var oldName = pk.IsNicknamed ? pk.Nickname : $"{SpeciesName.GetSpeciesNameGeneration(pk.Species, 2, 9)}{TradeExtensions<T>.FormOutput(pk.Species, pk.Form, out _)}";
             var timeStr = TimeOfDayString(user.UserInfo.TimeZoneOffset, false);
             var tod = TradeExtensions<T>.EnumParse<TimeOfDay>(timeStr);
             if (tod is TimeOfDay.Dawn)
                 tod = TimeOfDay.Morning;
+
+            pk.HandlingTrainerTrash.Clear();
+            pk.CurrentHandler = 1;
+            SimpleEdits.SetHTLanguage(pk, 1);
+            pk.HandlingTrainerName = "ZY";
+            pk.HandlingTrainerFriendship = 0;
+            pk.ClearMemories();
 
             if (!EvolvePK(pk, tod, out string message, out T? shedinja, alcremie, regional))
             {
@@ -1463,7 +1484,7 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
             }
 
             var form = TradeExtensions<T>.FormOutput(pk.Species, pk.Form, out _);
-            var species = SpeciesName.GetSpeciesNameGeneration(pk.Species, 2, 8);
+            var species = SpeciesName.GetSpeciesNameGeneration(pk.Species, 2, 9);
 
             user.Catches[match.ID].Species = species;
             user.Catches[match.ID].Form = form;
@@ -2122,7 +2143,11 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
 
         TradeExtensions<T>.FormOutput(Rng.SpeciesRNG, 0, out string[] forms);
         var formIDs = Dex[Rng.SpeciesRNG].ToArray();
-        var formRng = formIDs[Random.Next(formIDs.Length)];
+        byte formRng;
+        if (Rng.SpeciesRNG is (ushort)Species.Koraidon || Rng.SpeciesRNG is (ushort)Species.Miraidon)
+            formRng = 0;
+        else
+            formRng = formIDs[Random.Next(formIDs.Length)];
         var form = eventForm is 255 ? forms[formRng] : forms[eventForm];
 
         string formHack = Rng.SpeciesRNG switch
@@ -2203,46 +2228,49 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
                     user.Catches[match.ID].Nickname = pk.Nickname;
                 }
             }
-            else if (pk.CurrentLevel < 100 && result.Poke.Species is not 0)
+            else if (result.Poke.Species is not 0)
             {
                 var enc = result.Poke;
                 var sootheBell = pk.HeldItem is 218 && pk.CurrentFriendship + 2 <= 255 ? 2 : 0;
                 var shiny = enc.IsShiny && pk.CurrentFriendship + 5 + sootheBell <= 255 ? 5 : 0;
-                pk.CurrentFriendship += sootheBell + shiny;
+                pk.CurrentFriendship = (byte)Math.Min(pk.CurrentFriendship + sootheBell + shiny, 255);
 
-                int levelOld = pk.CurrentLevel;
-                var xpMin = Experience.GetEXP(pk.CurrentLevel + 1, pk.PersonalInfo.EXPGrowth);
-                var calc = enc.PersonalInfo.BaseEXP * enc.CurrentLevel / 5.0 * Math.Pow((2.0 * enc.CurrentLevel + 10.0) / (enc.CurrentLevel + pk.CurrentLevel + 10.0), 2.5);
-                var bonus = enc.IsShiny ? 1.1 : 1.0;
-                var xpGet = (uint)Math.Round(calc * bonus, 0, MidpointRounding.AwayFromZero);
-                if (xpGet < 100)
-                    xpGet = 175;
-
-                pk.EXP += xpGet;
-                while (pk.EXP >= Experience.GetEXP(pk.CurrentLevel + 1, pk.PersonalInfo.EXPGrowth) && pk.CurrentLevel < 100)
-                    pk.CurrentLevel++;
-
-                if (pk.CurrentLevel is 100)
-                    pk.EXP = xpMin;
-
-                if (pk.EXP >= xpMin)
+                if (pk.CurrentLevel < 100)
                 {
-                    buddyMsg = $"\n{user.Buddy.Nickname} gained {xpGet} EXP and leveled up to level {pk.CurrentLevel}!";
-                    if (pk.CurrentFriendship < 255)
+                    int levelOld = pk.CurrentLevel;
+                    var xpMin = Experience.GetEXP((byte)(pk.CurrentLevel + 1), pk.PersonalInfo.EXPGrowth);
+                    var calc = enc.PersonalInfo.BaseEXP * enc.CurrentLevel / 5.0 * Math.Pow((2.0 * enc.CurrentLevel + 10.0) / (enc.CurrentLevel + pk.CurrentLevel + 10.0), 2.5);
+                    var bonus = enc.IsShiny ? 1.1 : 1.0;
+                    var xpGet = (uint)Math.Round(calc * bonus, 0, MidpointRounding.AwayFromZero);
+                    if (xpGet < 100)
+                        xpGet = 175;
+
+                    pk.EXP += xpGet;
+                    while (pk.EXP >= Experience.GetEXP((byte)(pk.CurrentLevel + 1), pk.PersonalInfo.EXPGrowth) && pk.CurrentLevel < 100)
+                        pk.CurrentLevel++;
+
+                    if (pk.CurrentLevel is 100)
+                        pk.EXP = xpMin;
+
+                    if (pk.EXP >= xpMin)
                     {
-                        var delta = pk.CurrentLevel - levelOld;
-                        for (int i = 0; i < delta; i++)
+                        buddyMsg = $"\n{user.Buddy.Nickname} gained {xpGet} EXP and leveled up to level {pk.CurrentLevel}!";
+                        if (pk.CurrentFriendship < 255)
                         {
-                            if (pk.CurrentFriendship + 2 >= 255)
+                            var delta = pk.CurrentLevel - levelOld;
+                            for (int i = 0; i < delta; i++)
                             {
-                                pk.CurrentFriendship = 255;
-                                break;
+                                if (pk.CurrentFriendship + 2 >= 255)
+                                {
+                                    pk.CurrentFriendship = 255;
+                                    break;
+                                }
+                                pk.CurrentFriendship += 2;
                             }
-                            pk.CurrentFriendship += 2;
                         }
+                        else buddyMsg = $"\n{user.Buddy.Nickname} gained {xpGet} EXP!";
                     }
                 }
-                else buddyMsg = $"\n{user.Buddy.Nickname} gained {xpGet} EXP!";
             }
 
             var names = new string[] { "@data", "@user_id", "@id" };
@@ -2308,7 +2336,7 @@ public class TradeCordHelper<T> : TradeCordDatabase<T> where T : PKM, new()
         int[] array = result.User.Catches.Select(x => x.Value.ID).ToArray();
         array = array.OrderBy(x => x).ToArray();
         index = Indexing(array);
-        result.User.Catches.Add(index, new() { Species = speciesName, Nickname = pk.Nickname, Ball = $"{(Ball)pk.Ball}", Egg = pk.IsEgg, Form = form, ID = index, Shiny = pk.IsShiny, Traded = false, Favorite = false, Legendary = isLegend, Event = pk.FatefulEncounter, Gmax = canGmax});
+        result.User.Catches.Add(index, new() { Species = speciesName, Nickname = pk.Nickname, Ball = $"{(Ball)pk.Ball}", Egg = pk.IsEgg, Form = form, ID = index, Shiny = pk.IsShiny, Traded = false, Favorite = false, Legendary = isLegend, Event = pk.FatefulEncounter, Gmax = canGmax });
 
         var names = CatchValues.Replace(" ", "").Replace("-", "").Split(',');
         var obj = new object[] { result.User.UserInfo.UserID, index, pk.IsShiny, $"{(Ball)pk.Ball}", pk.Nickname, speciesName, form, pk.IsEgg, false, false, isLegend, pk.FatefulEncounter, canGmax, isParadox };

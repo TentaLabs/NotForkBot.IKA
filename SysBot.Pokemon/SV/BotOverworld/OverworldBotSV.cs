@@ -31,19 +31,20 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
     private int sandwichCounter;
     private int MinimumIngredientCount;
     private static ulong BaseBlockKeyPointer = 0;
-    private ulong PlayerOnMountOffset;
     private ulong PlayerCanMoveOffset;
+    private long StartingUnix;
     private bool GameWasReset = false;
     private SAV9SV TrainerSav = new();
-    private List<byte[]?> coordList = new();
-    private List<int> Condiments = new();
-    private List<int> Fillings = new();
+    private List<byte[]?> coordList = [];
+    private List<int> Condiments = [];
+    private List<int> Fillings = [];
     private int[] Ingredients = new int[4];
     private int[] Sequence = new int[4];
     private bool[] DPADUp = new bool[4];
     private byte[] X1 = [];
     private byte[] Y1 = [];
     private byte[] Z1 = [];
+    private DateTime StartingTime;
 
     public OverworldBotSV(PokeBotState cfg, PokeTradeHub<PK9> hub) : base(cfg)
     {
@@ -64,6 +65,12 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
         try
         {
             await InitializeSessionOffsets(token).ConfigureAwait(false);
+
+            StartingUnix = await SwitchConnection.GetCurrentTime(token).ConfigureAwait(false);
+            DateTime dateTime = new(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+            StartingTime = dateTime.AddSeconds(StartingUnix).ToLocalTime();
+            Log($"Starting System time: {StartingTime}.");
+
             if (Settings.RolloverFilters.ConfigureRolloverCorrection)
             {
                 await RolloverCorrectionSV(false, token).ConfigureAwait(false);
@@ -84,6 +91,7 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
 
         Log($"Ending {nameof(OverworldBotSV)} loop.");
         await HardStop().ConfigureAwait(false);
+        return;
     }
 
     private bool IsWaiting;
@@ -107,7 +115,7 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
         Log("Checking our bag for ingredients...");
         var itemptr = await SwitchConnection.PointerAll(Offsets.ItemBlock, token).ConfigureAwait(false);
         var items = await SwitchConnection.ReadBytesAbsoluteAsync(itemptr, TrainerSav.Items.Data.Length, token).ConfigureAwait(false);
-        items.CopyTo(TrainerSav.Items.Data, 0);
+        items.CopyTo(TrainerSav.Items.Data);
 
         var pouches = TrainerSav.Inventory;
         var ingredients = pouches[7];
@@ -128,7 +136,6 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
                 Fillings.Add(ingredients.Items[i].Index);
                 List.Add(ingredients.Items[i].Count);
             }
-
         }
 
         if (!Fillings.Contains((int)Settings.PicnicFilters.Item1))
@@ -267,7 +274,6 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
     {
         BaseBlockKeyPointer = await SwitchConnection.PointerAll(Offsets.BlockKeyPointer, token).ConfigureAwait(false);
         OverworldOffset = await SwitchConnection.PointerAll(Offsets.OverworldPointer, token).ConfigureAwait(false);
-        PlayerOnMountOffset = await SwitchConnection.PointerAll(Offsets.PlayerOnMountPointer, token).ConfigureAwait(false);
         PlayerCanMoveOffset = await SwitchConnection.PointerAll(Offsets.CanPlayerMovePointer, token).ConfigureAwait(false);
         RaidBlockP = await SwitchConnection.PointerAll(Offsets.RaidBlockPointerP, token).ConfigureAwait(false);
         Log("Caching offsets complete!");
@@ -284,7 +290,8 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
             if (Settings.RolloverFilters.RolloverPrevention == RolloverPrevention.TimeSkip)
             {
                 Log("Using timeskip method...");
-                await TimeSkipBwd(token).ConfigureAwait(false);
+                await SetDateTime((ulong)StartingUnix, token).ConfigureAwait(false);
+                Log($"System time set to {StartingTime}");
                 await Task.Delay(1_500, token).ConfigureAwait(false);
             }
             else
@@ -466,6 +473,7 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
                 if (GameWasReset)
                     break;
 
+                await Task.Delay(0 + Settings.TimeToWaitBetweenSpawns, token).ConfigureAwait(false);
                 await SVSaveGameOverworld(token).ConfigureAwait(false);
                 var block = await ReadBlock(BaseBlockKeyPointer, Blocks.Overworld, status is 0, token).ConfigureAwait(false);
                 if (status is 0)
@@ -476,7 +484,7 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
                     var c = block.AsSpan(0 + (i * 0x1D4) + 0x158, 0xC).ToArray();
                     var pk = new PK9(data);
                     if ((Species)pk.Species == Species.None)
-                        break;
+                        continue;
                     scanCount++;
                     if (pk.Scale is 0)
                         pk.SetRibbonIndex(RibbonIndex.MarkMini);
@@ -579,20 +587,20 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
             var prevXOR = pk.ShinyXor;
             pk.TID16 = TrainerSav.TID16;
             pk.SID16 = TrainerSav.SID16;
-            pk.OT_Name = TrainerSav.OT;
-            pk.OT_Gender = TrainerSav.Gender;
-            pk.Obedience_Level = (byte)pk.Met_Level;
+            pk.OriginalTrainerName = TrainerSav.OT;
+            pk.OriginalTrainerGender = TrainerSav.Gender;
+            pk.ObedienceLevel = (byte)pk.MetLevel;
             pk.FatefulEncounter = false;
             pk.Language = TrainerSav.Language;
             pk.EncryptionConstant = prevEC;
-            pk.Version = (int)TrainerSav.Version;
+            pk.Version = TrainerSav.Version;
             pk.MetDate = DateOnly.FromDateTime(DateTime.Now);
             pk.PID = (uint)((pk.TID16 ^ pk.SID16 ^ (prevPID & 0xFFFF) ^ prevXOR) << 16) | (prevPID & 0xFFFF); // Ty Manu098vm!!
             var enc = EncounterSuggestion.GetSuggestedMetInfo(pk);
             if (enc != null)
             {
                 int location = enc.Location;
-                pk.Met_Location = location;
+                pk.MetLocation = (ushort)location;
             }
             pk.LegalizePokemon();
             DumpPokemon(DumpSetting.DumpFolder, "overworld", pk);
@@ -903,12 +911,6 @@ public class OverworldBotSV : PokeRoutineExecutor9SV, IEncounterBot
     private async Task<bool> PlayerCannotMove(CancellationToken token)
     {
         var Data = await SwitchConnection.ReadBytesAbsoluteAsync(PlayerCanMoveOffset, 1, token).ConfigureAwait(false);
-        return Data[0] == 0x00; // 0 nope else yes
-    }
-
-    private async Task<bool> PlayerNotOnMount(CancellationToken token)
-    {
-        var Data = await SwitchConnection.ReadBytesAbsoluteAsync(PlayerOnMountOffset, 1, token).ConfigureAwait(false);
         return Data[0] == 0x00; // 0 nope else yes
     }
 

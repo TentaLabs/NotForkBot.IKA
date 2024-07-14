@@ -10,24 +10,15 @@ using Discord.Commands;
 
 namespace SysBot.Pokemon.Discord;
 
-public class DiscordTradeNotifier<T> : IPokeTradeNotifier<T> where T : PKM, new()
+public class DiscordTradeNotifier<T>(T data, PokeTradeTrainerInfo info, int code, SocketUser trader, SocketCommandContext channel) : IPokeTradeNotifier<T> where T : PKM, new()
 {
-    private T Data { get; }
-    private PokeTradeTrainerInfo Info { get; }
-    private int Code { get; }
-    private SocketUser Trader { get; }
-    private SocketCommandContext Context { get; }
+    private T Data { get; } = data;
+    private PokeTradeTrainerInfo Info { get; } = info;
+    private int Code { get; } = code;
+    private SocketUser Trader { get; } = trader;
+    private SocketCommandContext Context { get; } = channel;
     public Action<PokeRoutineExecutor<T>>? OnFinish { private get; set; }
     public readonly PokeTradeHub<T> Hub = SysCord<T>.Runner.Hub;
-
-    public DiscordTradeNotifier(T data, PokeTradeTrainerInfo info, int code, SocketUser trader, SocketCommandContext channel)
-    {
-        Data = data;
-        Info = info;
-        Code = code;
-        Trader = trader;
-        Context = channel;
-    }
 
     public void TradeInitialize(PokeRoutineExecutor<T> routine, PokeTradeDetail<T> info)
     {
@@ -60,7 +51,7 @@ public class DiscordTradeNotifier<T> : IPokeTradeNotifier<T> where T : PKM, new(
         var message = tradedToUser != 0 ? $"Trade finished. Enjoy your {(Species)tradedToUser}!" : "Trade finished!";
         Trader.SendMessageAsync(message).ConfigureAwait(false);
         if (result.Species != 0 && Hub.Config.Discord.ReturnPKMs)
-            Trader.SendPKMAsync(result, "Here's what you traded me!").ConfigureAwait(false);
+            Trader.SendPKMAsync(result, "Here's what you requested!").ConfigureAwait(false);
 
         if (Hub.Config.Trade.TradeDisplay && info.Type is not PokeTradeType.Dump or PokeTradeType.EtumrepDump)
         {
@@ -96,7 +87,7 @@ public class DiscordTradeNotifier<T> : IPokeTradeNotifier<T> where T : PKM, new(
                 if (index > 0)
                     markEntryText = MarkTitle[index];
 
-                var specitem = emb.HeldItem != 0 ? $"{SpeciesName.GetSpeciesNameGeneration(emb.Species, 2, emb.Generation <= 8 ? 8 : 9)}{TradeExtensions<T>.FormOutput(emb.Species, emb.Form, out _) + " (" + ShowdownParsing.GetShowdownText(emb).Split('@', '\n')[1].Trim() + ")"}" : $"{SpeciesName.GetSpeciesNameGeneration(emb.Species, 2, emb.Generation <= 8 ? 8 : 9) + TradeExtensions<T>.FormOutput(emb.Species, emb.Form, out _)}{markEntryText}";
+                var specitem = emb.HeldItem != 0 ? $"{SpeciesName.GetSpeciesNameGeneration(emb.Species, 2, (byte)(emb.Generation <= 8 ? 8 : 9))}{TradeExtensions<T>.FormOutput(emb.Species, emb.Form, out _) + " (" + ShowdownParsing.GetShowdownText(emb).Split('@', '\n')[1].Trim() + ")"}" : $"{SpeciesName.GetSpeciesNameGeneration(emb.Species, 2, (byte)(emb.Generation <= 8 ? 8 : 9)) + TradeExtensions<T>.FormOutput(emb.Species, emb.Form, out _)}{markEntryText}";
 
                 var msg = "Displaying your ";
                 var mode = info.Type;
@@ -108,9 +99,10 @@ public class DiscordTradeNotifier<T> : IPokeTradeNotifier<T> where T : PKM, new(
                     case PokeTradeType.SupportTrade or PokeTradeType.Giveaway: msg += $"gift!"; break;
                     case PokeTradeType.FixOT: msg += $"fixed OT!"; break;
                     case PokeTradeType.TradeCord: msg += $"prize!"; break;
+                    case PokeTradeType.Seed: msg += $"seed check!"; break;
                 }
                 string TIDFormatted = emb.Generation >= 7 ? $"{emb.TrainerTID7:000000}" : $"{emb.TID16:00000}";
-                var footer = new EmbedFooterBuilder { Text = $"Trainer Info: {emb.OT_Name}/{TIDFormatted}" };
+                var footer = new EmbedFooterBuilder { Text = $"Trainer Info: {emb.OriginalTrainerName}/{TIDFormatted}" };
                 var author = new EmbedAuthorBuilder { Name = $"{Context.User.Username}'s Pokémon" };
                 if (!Hub.Config.TradeCord.UseLargerPokeBalls)
                     ballImg = "";

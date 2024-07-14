@@ -546,8 +546,8 @@ public class TradeCordModule<T> : ModuleBase<SocketCommandContext> where T : PKM
             return;
         }
 
-        var ot = pkm.OT_Name;
-        var gender = $"{(Gender)pkm.OT_Gender}";
+        var ot = pkm.OriginalTrainerName;
+        var gender = $"{(Gender)pkm.OriginalTrainerGender}";
         var tid = $"{pkm.TID16}";
         var sid = $"{pkm.SID16}";
         var lang = $"{(LanguageID)pkm.Language}";
@@ -746,12 +746,13 @@ public class TradeCordModule<T> : ModuleBase<SocketCommandContext> where T : PKM
         var form = TradeExtensions<T>.FormOutput(result.Poke.Species, result.Poke.Form, out _).Replace("-", "");
         var lvlProgress = (Experience.GetEXPToLevelUpPercentage(result.Poke.CurrentLevel, result.Poke.EXP, result.Poke.PersonalInfo.EXPGrowth) * 100.0).ToString("N1");
         msg = $"\n**Nickname:** {result.User.Buddy.Nickname}" +
-              $"\n**Species:** {SpeciesName.GetSpeciesNameGeneration(result.Poke.Species, 2, 8)} {GameInfo.GenderSymbolUnicode[result.Poke.Gender].Replace("-", "")}" +
+              $"\n**Species:** {SpeciesName.GetSpeciesNameGeneration(result.Poke.Species, 2, 9)} {GameInfo.GenderSymbolUnicode[result.Poke.Gender].Replace("-", "")}" +
               $"\n**Form:** {(form == string.Empty ? "-" : form)}" +
               $"\n**Gigantamax:** {(canGmax ? "Yes" : "No")}" +
               $"\n**Ability:** {result.User.Buddy.Ability}" +
               $"\n**Level:** {result.Poke.CurrentLevel}" +
               $"\n**Friendship:** {result.Poke.CurrentFriendship}" +
+              $"\n**Language:** {(LanguageID)result.Poke.Language}" +
               $"\n**Held item:** {GameInfo.Strings.itemlist[result.Poke.HeldItem]}" +
               $"\n**Time of day:** {TradeCordHelper<T>.TimeOfDayString(result.User.UserInfo.TimeZoneOffset, false)}" +
               $"{(!result.Poke.IsEgg && result.Poke.CurrentLevel < 100 ? $"\n**Progress to next level:** {lvlProgress}%" : "")}";
@@ -803,10 +804,7 @@ public class TradeCordModule<T> : ModuleBase<SocketCommandContext> where T : PKM
     [RequireQueueRole(nameof(DiscordManager.RolesTradeCord))]
     public async Task TradeCordEvolution([Remainder][Summary("Usable item or Alcremie form.")] string input = "")
     {
-        await ReplyAsync("To further bring the community together, evolutions has currently been turned off. ").ConfigureAwait(false);
-        return;
-
-        /*string name = $"{Context.User.Username}'s Evolution";
+        string name = $"{Context.User.Username}'s Evolution";
         if (!TradeCordParanoiaChecks(out string msg))
         {
             await Util.EmbedUtil(Context, name, msg).ConfigureAwait(false);
@@ -815,7 +813,7 @@ public class TradeCordModule<T> : ModuleBase<SocketCommandContext> where T : PKM
 
         input = input.Replace(" ", "").ToLower();
         var ctx = new TradeCordHelper<T>.TC_CommandContext { Username = Context.User.Username, ID = Context.User.Id, Context = TCCommandContext.Evolution };
-        var result = await Helper.ProcessTradeCord(ctx, new string[] { input }).ConfigureAwait(false);
+        var result = await Helper.ProcessTradeCord(ctx, [input]).ConfigureAwait(false);
         if (!result.Success)
         {
             await Util.EmbedUtil(Context, name, result.Message).ConfigureAwait(false);
@@ -835,7 +833,7 @@ public class TradeCordModule<T> : ModuleBase<SocketCommandContext> where T : PKM
             Author = author,
         }.WithFooter(x => { x.Text = flavorText; x.IconUrl = "https://i.imgur.com/nXNBrlr.png"; });
 
-        await Context.Channel.SendMessageAsync(null, false, embed: embed.Build()).ConfigureAwait(false);*/
+        await Context.Channel.SendMessageAsync(null, false, embed: embed.Build()).ConfigureAwait(false);
     }
 
     [Command("TradeCordGiveItem")]

@@ -11,6 +11,7 @@ using RaidCrawler.Core.Structures;
 using static SysBot.Pokemon.PokeDataOffsetsSV;
 using static SysBot.Base.SwitchButton;
 using static System.Buffers.Binary.BinaryPrimitives;
+using System.Text;
 
 namespace SysBot.Pokemon;
 
@@ -63,7 +64,7 @@ public abstract class PokeRoutineExecutor9SV : PokeRoutineExecutor<PK9>
         if (sav != null)
         {
             // Update PKM to the current save's handler data
-            pkm.Trade(sav);
+            pkm.UpdateHandler(sav);
             pkm.RefreshChecksum();
         }
 
@@ -117,7 +118,7 @@ public abstract class PokeRoutineExecutor9SV : PokeRoutineExecutor<PK9>
         var sav = new SAV9SV();
         var info = sav.MyStatus;
         var read = await SwitchConnection.PointerPeek(info.Data.Length, Offsets.MyStatusPointer, token).ConfigureAwait(false);
-        read.CopyTo(info.Data, 0);
+        read.CopyTo(info.Data);
         return sav;
     }
 
@@ -199,7 +200,9 @@ public abstract class PokeRoutineExecutor9SV : PokeRoutineExecutor<PK9>
         Log("Restarting the game!");
 
         // Switch Logo and game load screen
-        await Task.Delay(12_000 + timing.ExtraTimeLoadGame, token).ConfigureAwait(false);
+        await Click(A, 5_000, token).ConfigureAwait(false);
+        await Click(A, 5_000, token).ConfigureAwait(false);
+        await Task.Delay(2_000 + timing.ExtraTimeLoadGame, token).ConfigureAwait(false);
 
         for (int i = 0; i < 8; i++)
             await Click(A, 1_000, token).ConfigureAwait(false);
@@ -284,6 +287,11 @@ public abstract class PokeRoutineExecutor9SV : PokeRoutineExecutor<PK9>
     public async Task TimeSkipFwd(CancellationToken token) => await SwitchConnection.SendAsync(SwitchCommand.TimeSkipForward(true), token).ConfigureAwait(false);
     public async Task TimeSkipBwd(CancellationToken token) => await SwitchConnection.SendAsync(SwitchCommand.TimeSkipBack(true), token).ConfigureAwait(false);
     public async Task ResetTimeSV(CancellationToken token) => await SwitchConnection.SendAsync(SwitchCommand.ResetTime(true), token).ConfigureAwait(false);
+    public async Task SetDateTime(ulong date, CancellationToken token)
+    {
+        var command = Encoding.ASCII.GetBytes($"setCurrentTime {date}{(true ? "\r\n" : "")}");
+        await Connection.SendAsync(command, token).ConfigureAwait(false);
+    }
 
     public async Task SVSaveGameOverworld(CancellationToken token)
     {

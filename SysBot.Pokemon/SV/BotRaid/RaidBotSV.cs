@@ -43,6 +43,7 @@ namespace SysBot.Pokemon
         private ulong OverworldOffset;
         private ulong ConnectedOffset;
         private ulong RaidBlockPointer;
+        private long StartingUnix;
         private int RaidBlockSize = 0;
         private TeraRaidMapParent RaidMap = TeraRaidMapParent.Paldea;
         private static ulong BaseBlockKeyPointer = 0;
@@ -54,6 +55,7 @@ namespace SysBot.Pokemon
         private List<BanList> GlobalBanList = [];
         private SAV9SV HostSAV = new();
         private DateTime StartTime = DateTime.Now;
+        private DateTime StartingTime;
         private RaidContainer? container;
 
         public override async Task MainLoop(CancellationToken token)
@@ -110,6 +112,7 @@ namespace SysBot.Pokemon
 
             Log($"Ending {nameof(RaidBotSV)} loop.");
             await HardStop().ConfigureAwait(false);
+            return;
         }
 
         private void LoadDefaultFile()
@@ -245,6 +248,7 @@ namespace SysBot.Pokemon
 
             return false;
         }
+
         private async Task InnerLoop(CancellationToken token)
         {
             bool partyReady;
@@ -257,10 +261,15 @@ namespace SysBot.Pokemon
             LossCount = 0;
             var raidsHosted = 0;
             Settings.RaidEmbedFilters.IsSet = false;
+            StartingUnix = await SwitchConnection.GetCurrentTime(token).ConfigureAwait(false);
+            DateTime dateTime = new(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+            StartingTime = dateTime.AddSeconds(StartingUnix).ToLocalTime();
+            Log($"Starting System time: {StartingTime}.");
             while (!token.IsCancellationRequested)
             {
                 // Initialize offsets at the start of the routine and cache them.
                 await InitializeSessionOffsets(token).ConfigureAwait(false);
+
                 if (!Settings.RaidEmbedFilters.IsSet)
                 {
                     Log($"Preparing parameter for {Settings.RaidEmbedFilters.Species}");
@@ -722,6 +731,26 @@ namespace SysBot.Pokemon
                     break;
             }
             bool isBanned = banResultCFW != default || banGlobalCFW || banResultCC.Item1;
+            if (banResultCC.Item1 is true)
+            {
+                using var httpClient = new HttpClient();
+                var url = "https://raw.githubusercontent.com/zyro670/NIDGlobalBanList/main/override.json";
+                var data = await httpClient.GetStringAsync(url, token).ConfigureAwait(false);
+                var overridelist = JsonConvert.DeserializeObject<List<OverrideList>>(data)!;
+                for (int i = 0; i < overridelist.Count; i++)
+                {
+                    var oNID = overridelist[i].NIDs;
+                    for (int o = 0; o < oNID.Length; o++)
+                    {
+                        if (oNID[o] == nid)
+                        {
+                            Log($"NID: {nid} found on GlobalBanList. Initiating override, {overridelist[i].Names} is a good egg.");
+                            isBanned = false;
+                            break;
+                        }
+                    }
+                }
+            }
 
             bool blockResult = false;
             var blockCheck = isPresent;
@@ -731,7 +760,7 @@ namespace SysBot.Pokemon
                 {
                     blockResult = true;
                     current.PenaltyCount++;
-                    Log($"Player: {trainer.OT} current penalty count: {current.PenaltyCount}.");
+                    Log($"Player: {trainer.OT} current penalty count: {current.PenaltyCount - Settings.CatchLimit}.");
                     foreach (var j in jsonData)
                     {
                         if (j.ID == current.ID)
@@ -748,12 +777,12 @@ namespace SysBot.Pokemon
                     Log(msg);
                     RaiderBanList.List.Add(new() { ID = nid, Name = trainer.OT, Comment = msg });
                     blockResult = false;
-                    await EnqueueEmbed(null, $"Penalty #{current.PenaltyCount}\n" + msg, false, true, false, false, token).ConfigureAwait(false);
+                    await EnqueueEmbed(null, $"Penalty #{current.PenaltyCount - Settings.CatchLimit}\n" + msg, false, true, false, false, token).ConfigureAwait(false);
                     return true;
                 }
                 if (blockResult && !isBanned)
                 {
-                    msg = $"Penalty #{current.PenaltyCount}\n{trainer.OT} has already reached the catch limit.\nPlease do not join again.\nRepeated attempts to join like this will result in a ban from future raids.";
+                    msg = $"Penalty #{current.PenaltyCount - Settings.CatchLimit}\n{trainer.OT} has already reached the catch limit.\nPlease do not join again.\nRepeated attempts to join like this will result in a ban from future raids.";
                     Log(msg);
                     await EnqueueEmbed(null, msg, false, true, false, false, token).ConfigureAwait(false);
                     return true;
@@ -762,7 +791,7 @@ namespace SysBot.Pokemon
 
             if (isBanned)
             {
-                msg = banResultCC.Item1 ? banResultCC.Item2 : banGlobalCFW ? $"{trainer.OT} was found in the global ban list.\nReason: {user.Comment}" : $"Penalty #{current.PenaltyCount}\n{banResultCFW!.Name} was found in the host's ban list.\n{banResultCFW.Comment}";
+                msg = banResultCC.Item1 ? banResultCC.Item2 : banGlobalCFW ? $"{trainer.OT} was found in the global ban list.\nReason: {user.Comment}" : $"Penalty #{current.PenaltyCount - Settings.CatchLimit}\n{banResultCFW!.Name} was found in the host's ban list.\n{banResultCFW.Comment}";
                 Log(msg);
                 await EnqueueEmbed(null, msg, false, true, false, false, token).ConfigureAwait(false);
                 return true;
@@ -857,10 +886,8 @@ namespace SysBot.Pokemon
         {
             if (Settings.RolloverFilters.RolloverPrevention == RolloverPrevention.TimeSkip)
             {
-                for (int i = 0; i < 23; i++)
-                {
-                    await TimeSkipBwd(token).ConfigureAwait(false);
-                }
+                await SetDateTime((ulong)StartingUnix, token).ConfigureAwait(false);
+                Log($"System time set to {StartingTime}");
                 await Task.Delay(1_500, token).ConfigureAwait(false);
                 return;
             }
@@ -956,7 +983,10 @@ namespace SysBot.Pokemon
 
             string code = string.Empty;
             if (names is null && !upnext)
+            {
                 code = $"**{(Settings.RaidEmbedFilters.IsCoded && EmptyRaid < Settings.EmptyRaidLimit ? await GetRaidCode(token).ConfigureAwait(false) : "Free For All")}**";
+                Hub.Config.Stream.GetRaidCodeAsset(code.Replace("*", ""));
+            }
 
             if (EmptyRaid == Settings.EmptyRaidLimit)
                 EmptyRaid = 0;
